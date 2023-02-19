@@ -7,8 +7,10 @@
 
 #define DETERMINISTIC() false
 
-static const size_t c_lotteryWinFrequency = 10000000;
-static const size_t c_lotteryTestCount = 1000;
+static const size_t c_lotteryWinFrequency = 10000;
+static const size_t c_lotteryTestCount = 100;
+
+static const size_t c_sumTestCount = 10000;
 
 // ================== OTHER ==================
 
@@ -34,7 +36,7 @@ T MapFloat(float f, T min, T max)
 	return min + std::min(size_t(f * float(range + 1)), range);
 }
 
-std::vector<float> Generate_WhiteNoise(int numSamples, uint64_t sequenceIndex)
+std::vector<float> Generate_WhiteNoise(size_t numSamples, uint64_t sequenceIndex)
 {
 	pcg32_random_t rng;
 	pcg32_srandom_r(&rng, g_randomSeed, sequenceIndex);
@@ -44,7 +46,26 @@ std::vector<float> Generate_WhiteNoise(int numSamples, uint64_t sequenceIndex)
 	return ret;
 }
 
-std::vector<float> Generate_GoldenRatio(int numSamples, uint64_t sequenceIndex)
+std::vector<float> Generate_Stratified(size_t numSamples, uint64_t sequenceIndex)
+{
+	pcg32_random_t rng;
+	pcg32_srandom_r(&rng, g_randomSeed, sequenceIndex);
+	std::vector<float> ret(numSamples);
+	for (size_t index = 0; index < numSamples; ++index)
+		ret[index] = (float(index) + PCGRandomFloat01(rng)) / float(numSamples);
+	return ret;
+}
+
+std::vector<float> Generate_RegularOffset(size_t numSamples, uint64_t sequenceIndex)
+{
+	float offset = Generate_WhiteNoise(1, sequenceIndex)[0];
+	std::vector<float> ret(numSamples);
+	for (size_t index = 0; index < numSamples; ++index)
+		ret[index] = (float(index) + offset) / float(numSamples);
+	return ret;
+}
+
+std::vector<float> Generate_GoldenRatio(size_t numSamples, uint64_t sequenceIndex)
 {
 	std::vector<float> ret(numSamples);
 	ret[0] = Generate_WhiteNoise(1, sequenceIndex)[0];
@@ -89,6 +110,38 @@ float LotteryTest(const LAMBDA& RNG, uint64_t sequenceIndex)
 	return losePercent;
 }
 
+template <typename LAMBDA>
+float SumTest(const LAMBDA& RNG, uint64_t sequenceIndex)
+{
+	// we need a seed per test
+	uint64_t sequenceIndexBase = sequenceIndex * c_sumTestCount;
+
+	std::vector<float> sumCount(c_sumTestCount, 0.0f);
+	//#pragma omp parallel for
+	for (int testIndex = 0; testIndex < c_sumTestCount; ++testIndex)
+	{
+		std::vector<float> rng = RNG(10, sequenceIndexBase + testIndex);
+		float value = 0.0f;
+		for (size_t index = 0; index < rng.size(); ++index)
+		{
+			value += rng[index];
+			if (value >= 1.0f)
+			{
+				sumCount[testIndex] = float(index + 1);
+				break;
+			}
+		}
+		if (value < 1.0f)
+			printf("[ERROR] Ran out of random numbers.\n");
+	}
+
+	// calculate and return the average count
+	float count = 0.0f;
+	for (size_t testIndex = 0; testIndex < c_sumTestCount; ++testIndex)
+		count = Lerp(count, sumCount[testIndex], 1.0f / float(testIndex + 1));
+	return count;
+}
+
 int main(int argc, char** argv)
 {
 #if !DETERMINISTIC()
@@ -96,12 +149,20 @@ int main(int argc, char** argv)
 	g_randomSeed = rd();
 #endif
 
-	printf("e = %f\n\n", std::exp(1.0f));
+	printf("e = %f\n", std::exp(1.0f));
 	printf("1/e = %f\n\n", 1.0f / std::exp(1.0f));
 
 	printf("Lottery Lose Chance:\n");
 	printf("  White Noise: %0.2f%%\n", 100.0f * LotteryTest(Generate_WhiteNoise, 0));
 	printf("  Golden Ratio: %0.2f%%\n", 100.0f * LotteryTest(Generate_GoldenRatio, 1));
+	printf("  Stratified: %0.2f%%\n", 100.0f * LotteryTest(Generate_Stratified, 2));
+	printf("  Regular Offset: %0.2f%%\n", 100.0f * LotteryTest(Generate_RegularOffset, 3));
+
+	printf("\nSumming Random Values:\n");
+	printf("  White Noise: %f\n", SumTest(Generate_WhiteNoise, 0));
+	printf("  Golden Ratio: %f\n", SumTest(Generate_GoldenRatio, 1));
+	printf("  Stratified: %f\n", SumTest(Generate_Stratified, 2));
+	printf("  Regular Offset: %f\n", SumTest(Generate_RegularOffset, 3));
 
 	return 0;
 }
@@ -109,15 +170,19 @@ int main(int argc, char** argv)
 /*
 
 TODO:
-- PCG for speed, instead of mtl
-- maybe openmp too
-- stuff below. with different types of noise.
-- int numSamples should be a size t
+- what other types of noise?
+ - blue noise would be nice but hard to generate quickly. can you turn triangle distribution into uniform without rejection sampling?
+ - if so, could do red noise as well
+- csvs with graphs by python
+- profile
+- could try and make blue noise using an e based MBC algorithm.
+ - if it works out, could send it to jcgt or something maybe, as a very short paper.
 
-Meaningful tests:
-- lottery
+Note:
+* omit and explain the noises that aren't meaningful to specific tests
+
+Meaningful tests remaining:
 - interview
-- adding random numbers til they are >= 1
 
 e probability tests:
 - Lottery: 1/N chance of winning done N times has 1/e chance of never happening. 36.8%.  (1 - 1/N)^N = 1/e
