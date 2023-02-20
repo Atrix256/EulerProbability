@@ -10,7 +10,10 @@
 static const size_t c_lotteryWinFrequency = 10000;
 static const size_t c_lotteryTestCount = 100;
 
-static const size_t c_sumTestCount = 1000000;
+static const size_t c_sumTestCount = 10000;
+
+static const size_t c_candidateTestCount = 100000;
+static const size_t c_candidateCount = 1000;
 
 // ================== OTHER ==================
 
@@ -74,19 +77,29 @@ std::vector<float> Generate_GoldenRatio(size_t numSamples, uint64_t sequenceInde
 	return ret;
 }
 
-template <typename LAMBDA>
-std::vector<float> ShuffleSequence(size_t numSamples, uint64_t sequenceIndex, LAMBDA& generate)
+std::vector<float> ShuffleSequence(std::vector<float>& sequence, uint64_t shuffleSeed)
 {
-	std::vector<float> ret = generate(numSamples, sequenceIndex);
-	std::mt19937 rng((unsigned int)sequenceIndex);
-	std::shuffle(ret.begin(), ret.end(), rng);
-	return ret;
+	std::mt19937 rng((unsigned int)shuffleSeed ^ (unsigned int)g_randomSeed);
+	std::shuffle(sequence.begin(), sequence.end(), rng);
+	return sequence;
+}
+
+std::vector<float> Generate_StratifiedShuffled(size_t numSamples, uint64_t sequenceIndex)
+{
+	std::vector<float> sequence = Generate_Stratified(numSamples, sequenceIndex);
+	return ShuffleSequence(sequence, sequenceIndex);
+}
+
+std::vector<float> Generate_RegularOffsetShuffled(size_t numSamples, uint64_t sequenceIndex)
+{
+	std::vector<float> sequence = Generate_RegularOffset(numSamples, sequenceIndex);
+	return ShuffleSequence(sequence, sequenceIndex);
 }
 
 // ================== TESTS ==================
 
 template <typename LAMBDA>
-float LotteryTest(const LAMBDA& RNG, uint64_t sequenceIndex)
+void LotteryTest(const LAMBDA& RNG, uint64_t sequenceIndex, const char* label)
 {
 	// we need a seed per test to generate the winning number, and another seed per test to generate the random numbers
 	uint64_t sequenceIndexBase = sequenceIndex * c_lotteryTestCount * 2;
@@ -116,11 +129,12 @@ float LotteryTest(const LAMBDA& RNG, uint64_t sequenceIndex)
 	float losePercent = 0.0f;
 	for (size_t testIndex = 0; testIndex < c_lotteryTestCount; ++testIndex)
 		losePercent = Lerp(losePercent, (1.0f - wins[testIndex]), 1.0f / float(testIndex + 1));
-	return losePercent;
+
+	printf("  %s: %0.2f%%\n", label, 100.0f * losePercent);
 }
 
 template <typename LAMBDA>
-float SumTest(const LAMBDA& RNG, uint64_t sequenceIndex)
+void SumTest(const LAMBDA& RNG, uint64_t sequenceIndex, const char* label)
 {
 	// we need a seed per test
 	uint64_t sequenceIndexBase = sequenceIndex * c_sumTestCount;
@@ -148,7 +162,74 @@ float SumTest(const LAMBDA& RNG, uint64_t sequenceIndex)
 	float count = 0.0f;
 	for (size_t testIndex = 0; testIndex < c_sumTestCount; ++testIndex)
 		count = Lerp(count, sumCount[testIndex], 1.0f / float(testIndex + 1));
-	return count;
+
+	printf("  %s: %f numbers to get >= 1.0\n", label, count);
+}
+
+template <typename LAMBDA>
+void CandidatesTest(const LAMBDA& RNG, uint64_t sequenceIndex, const char* label)
+{
+	// we need a seed per test
+	uint64_t sequenceIndexBase = sequenceIndex * c_candidateTestCount;
+
+	struct TestResults
+	{
+		float candidatesEvaluated = 0.0f;
+		float candidateRankPercent = 0.0f;
+	};
+
+	std::vector<TestResults> results(c_candidateTestCount);
+	#pragma omp parallel for
+	for (int testIndex = 0; testIndex < c_candidateTestCount; ++testIndex)
+	{
+		std::vector<float> candidates = RNG(c_candidateCount, sequenceIndexBase + testIndex);
+
+		// Find the best candidate in the pre candidate group.
+		// THe pre candidate group is candidateCount / e in size
+		size_t preCandidates = size_t(float(c_candidateCount) / std::exp(1.0f));
+		float bestPreCandidate = 0.0f;
+		for (size_t i = 0; i < preCandidates; ++i)
+			bestPreCandidate = std::max(bestPreCandidate, candidates[i]);
+
+		// Find the first candidate in the second group that is > that candidate, and take that as the winner
+		size_t foundAt = 0;
+		float bestCandidate = 0.0f;
+		for (size_t i = preCandidates; i < c_candidateCount; ++i)
+		{
+			if (candidates[i] > bestPreCandidate)
+			{
+				bestCandidate = candidates[i];
+				foundAt = i;
+				break;
+			}
+		}
+		if (foundAt == 0)
+		{
+			foundAt = c_candidateCount - 1;
+			bestCandidate = bestPreCandidate;
+			//printf("[ERROR] Ran out of random numbers.\n");
+		}
+		results[testIndex].candidatesEvaluated = float(foundAt);
+
+		// find out how many candidates are better than what we found.
+		size_t betterCount = 0;
+		for (size_t i = 0; i < c_candidateCount; ++i)
+		{
+			if (candidates[i] > bestCandidate)
+				betterCount++;
+		}
+
+		results[testIndex].candidateRankPercent = float(betterCount) / float(c_candidateCount);
+	}
+
+	TestResults result;
+	for (size_t i = 0; i < c_candidateTestCount; ++i)
+	{
+		result.candidatesEvaluated = Lerp(result.candidatesEvaluated, results[i].candidatesEvaluated, 1.0f / float(i + 1));
+		result.candidateRankPercent = Lerp(result.candidateRankPercent, results[i].candidateRankPercent, 1.0f / float(i + 1));
+	}
+
+	printf("  %s: %i / %i candidates looked at, %f%% candidates were better\n", label, int(result.candidatesEvaluated + 0.5f), (int)c_candidateCount, 100.0f * result.candidateRankPercent);
 }
 
 int main(int argc, char** argv)
@@ -163,19 +244,28 @@ int main(int argc, char** argv)
 
 	// NOTE: more evenly spaced sampling means fewer duplicates, which is why they win more.
 	printf("Lottery Lose Chance:\n");
-	printf("  White Noise: %0.2f%%\n", 100.0f * LotteryTest(Generate_WhiteNoise, 0));
-	printf("  Golden Ratio: %0.2f%%\n", 100.0f * LotteryTest(Generate_GoldenRatio, 1));
-	printf("  Stratified: %0.2f%%\n", 100.0f * LotteryTest(Generate_Stratified, 2));
-	printf("  Regular Offset: %0.2f%%\n", 100.0f * LotteryTest(Generate_RegularOffset, 3));
+	LotteryTest(Generate_WhiteNoise, 0, "White Noise");
+	LotteryTest(Generate_GoldenRatio, 1, "Golden Ratio");
+	LotteryTest(Generate_Stratified, 2, "Stratified");
+	LotteryTest(Generate_RegularOffset, 3, "Regular Offset");
 
 	// NOTE: shuffling stratified and regular offset cause they are only appropriate when we know the number of samples in advance. we don't for this test.
 	printf("\nSumming Random Values:\n");
-	printf("  White Noise: %f\n", SumTest(Generate_WhiteNoise, 0));
-	printf("  Golden Ratio: %f\n", SumTest(Generate_GoldenRatio, 1));
-	printf("  Stratified: %f\n", SumTest([](size_t numSamples, uint64_t sequenceIndex) {return ShuffleSequence(numSamples, sequenceIndex, Generate_Stratified); }, 2));
-	printf("  Regular Offset: %f\n", SumTest([](size_t numSamples, uint64_t sequenceIndex) {return ShuffleSequence(numSamples, sequenceIndex, Generate_RegularOffset); }, 3));
+	SumTest(Generate_WhiteNoise, 0, "White Noise");
+	SumTest(Generate_GoldenRatio, 1, "Golden Ratio");
+	SumTest(Generate_StratifiedShuffled, 2, "Stratified Shuffled");
+	SumTest(Generate_RegularOffsetShuffled, 3, "Regular Offset Shuffled");
 
+	// NOTE: shuffling stratified and regular offset because they are monotonic otherwise, and the best candidate is always the last one.
+	printf("\nCandidates:\n");
+	CandidatesTest(Generate_WhiteNoise, 0, "White Noise");
+	CandidatesTest(Generate_GoldenRatio, 1, "Golden Ratio");
+	CandidatesTest(Generate_StratifiedShuffled, 2, "Stratified Shuffled");
+	CandidatesTest(Generate_RegularOffsetShuffled, 3, "Regular Offset Shuffled");
 
+	// TODO: inner and outer loops for the tests, to help floating point and memory
+	// TODO: make each function report progress (%) before results
+	// TODO: make the sumtest and lottery test be in charge for printing out progres and then results. one line. label first then progress, which then becomes results.
 
 	return 0;
 }
@@ -189,6 +279,7 @@ TODO:
 - csvs with graphs by python
 - could try and make blue noise using an e based MBC algorithm.
  - if it works out, could send it to jcgt or something maybe, as a very short paper.
+- move to doubles instead of floats?
 
 Note:
 * omit and explain the noises that aren't meaningful to specific tests
