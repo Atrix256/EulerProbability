@@ -2,13 +2,17 @@
 #include <random>
 #include <vector>
 #include "pcg/pcg_basic.h"
+#include <omp.h>
+#include <atomic>
 
 // ============== TEST SETTINGS ==============
 
 #define DETERMINISTIC() false
 
 static const size_t c_lotteryWinFrequency = 10000;
-static const size_t c_lotteryTestCount = 100;
+
+static const size_t c_lotteryTestCountOuter = 1000;
+static const size_t c_lotteryTestCountInner = 1000;
 
 static const size_t c_sumTestCount = 10000;
 
@@ -102,35 +106,56 @@ template <typename LAMBDA>
 void LotteryTest(const LAMBDA& RNG, uint64_t sequenceIndex, const char* label)
 {
 	// we need a seed per test to generate the winning number, and another seed per test to generate the random numbers
-	uint64_t sequenceIndexBase = sequenceIndex * c_lotteryTestCount * 2;
+	uint64_t sequenceIndexBase = sequenceIndex * c_lotteryTestCountOuter * c_lotteryTestCountInner * 2;
 
 	// gather up the wins and losses
-	std::vector<float> wins(c_lotteryTestCount, 0.0f);
+	std::vector<float> wins(c_lotteryTestCountOuter, 0.0f);
+	std::atomic<int> testsFinished(0);
+	int lastPercent = -1;
 	#pragma omp parallel for
-	for (int testIndex = 0; testIndex < c_lotteryTestCount; ++testIndex)
+	for (int testIndexOuter = 0; testIndexOuter < c_lotteryTestCountOuter; ++testIndexOuter)
 	{
-		// Generate a winning number
-		size_t winningNumber = MapFloat<size_t>(Generate_WhiteNoise(1, sequenceIndexBase + testIndex * 2)[0], 0, c_lotteryWinFrequency - 1);
-
-		// Report whether the player won
-		std::vector<float> rng = RNG(c_lotteryWinFrequency, sequenceIndexBase + testIndex * 2 + 1);
-		for (const float& vf : rng)
+		for (int testIndexInner = 0; testIndexInner < c_lotteryTestCountInner; ++testIndexInner)
 		{
-			size_t v = MapFloat<size_t>(vf, 0, c_lotteryWinFrequency - 1);
-			if (v == winningNumber)
+			if (omp_get_thread_num() == 0)
 			{
-				wins[testIndex] = 1.0f;
-				break;
+				int percent = int(100.0f * float(testsFinished.load()) / float(c_lotteryTestCountOuter * c_lotteryTestCountInner));
+				if (percent != lastPercent)
+				{
+					lastPercent = percent;
+					printf("\r  %s: %i%%", label, percent);
+				}
 			}
+
+			int testIndex = testIndexOuter * c_lotteryTestCountInner + testIndexInner;
+
+			// Generate a winning number
+			size_t winningNumber = MapFloat<size_t>(Generate_WhiteNoise(1, sequenceIndexBase + testIndex * 2)[0], 0, c_lotteryWinFrequency - 1);
+
+			// Report whether the player won
+			std::vector<float> rng = RNG(c_lotteryWinFrequency, sequenceIndexBase + testIndex * 2 + 1);
+			float win = 0.0f;
+			for (const float& vf : rng)
+			{
+				size_t v = MapFloat<size_t>(vf, 0, c_lotteryWinFrequency - 1);
+				if (v == winningNumber)
+				{
+					win = 1.0f;
+					break;
+				}
+			}
+
+			wins[testIndexOuter] = Lerp(wins[testIndexOuter], win, 1.0f / float(testIndexInner + 1));
+			testsFinished.fetch_add(1);
 		}
 	}
 
 	// calculate and return the lose percentage
 	float losePercent = 0.0f;
-	for (size_t testIndex = 0; testIndex < c_lotteryTestCount; ++testIndex)
-		losePercent = Lerp(losePercent, (1.0f - wins[testIndex]), 1.0f / float(testIndex + 1));
+	for (size_t testIndexOuter = 0; testIndexOuter < c_lotteryTestCountOuter; ++testIndexOuter)
+		losePercent = Lerp(losePercent, (1.0f - wins[testIndexOuter]), 1.0f / float(testIndexOuter + 1));
 
-	printf("  %s: %0.2f%%\n", label, 100.0f * losePercent);
+	printf("\r  %s: %0.2f%% lose chance\n", label, 100.0f * losePercent);
 }
 
 template <typename LAMBDA>
