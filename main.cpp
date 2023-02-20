@@ -329,10 +329,6 @@ int main(int argc, char** argv)
 	CandidatesTest(Generate_StratifiedShuffled, 2, "Stratified Shuffled");
 	CandidatesTest(Generate_RegularOffsetShuffled, 3, "Regular Offset Shuffled");
 
-	// TODO: inner and outer loops for the tests, to help floating point and memory
-	// TODO: make each function report progress (%) before results
-	// TODO: make the sumtest and lottery test be in charge for printing out progres and then results. one line. label first then progress, which then becomes results.
-
 	return 0;
 }
 
@@ -347,11 +343,11 @@ TODO:
  - if it works out, could send it to jcgt or something maybe, as a very short paper.
 - move to doubles instead of floats?
 
+- try this with blue noise, red noise (need to convert from triangular to uniform distribution, or find some other way to do this).
+- make a "Euler's best candidate" and compare DFT to MBC blue noise
+
 Note:
 * omit and explain the noises that aren't meaningful to specific tests
-
-Meaningful tests remaining:
-- interview
 
 e probability tests:
 - Lottery: 1/N chance of winning done N times has 1/e chance of never happening. 36.8%.  (1 - 1/N)^N = 1/e
@@ -362,5 +358,7 @@ e probability tests:
 
 Notes:
 - (1 + 1/N)^N = e for large values of N
+
+Link to the video that kicked this off
 
 */
