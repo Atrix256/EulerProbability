@@ -17,7 +17,8 @@ static const size_t c_lotteryTestCountInner = 1000;
 static const size_t c_sumTestCountOuter = 10000;
 static const size_t c_sumTestCountInner = 1000;
 
-static const size_t c_candidateTestCount = 100000;
+static const size_t c_candidateTestCountOuter = 10000;
+static const size_t c_candidateTestCountInner = 1000;
 static const size_t c_candidateCount = 1000;
 
 // ================== OTHER ==================
@@ -168,7 +169,7 @@ void SumTest(const LAMBDA& RNG, uint64_t sequenceIndex, const char* label)
 	std::atomic<int> testsFinished(0);
 	int lastPercent = -1;
 	std::vector<float> sumCount(c_sumTestCountOuter, 0.0f);
-	//#pragma omp parallel for
+	#pragma omp parallel for
 	for (int testIndexOuter = 0; testIndexOuter < c_sumTestCountOuter; ++testIndexOuter)
 	{
 		for (int testIndexInner = 0; testIndexInner < c_sumTestCountInner; ++testIndexInner)
@@ -214,66 +215,87 @@ template <typename LAMBDA>
 void CandidatesTest(const LAMBDA& RNG, uint64_t sequenceIndex, const char* label)
 {
 	// we need a seed per test
-	uint64_t sequenceIndexBase = sequenceIndex * c_candidateTestCount;
+	uint64_t sequenceIndexBase = sequenceIndex * c_candidateTestCountOuter * c_candidateTestCountInner;
 
 	struct TestResults
 	{
 		float candidatesEvaluated = 0.0f;
+		float candidateRank = 0.0f;
 		float candidateRankPercent = 0.0f;
 	};
 
-	std::vector<TestResults> results(c_candidateTestCount);
+	std::atomic<int> testsFinished(0);
+	int lastPercent = -1;
+	std::vector<TestResults> results(c_candidateTestCountOuter);
 	#pragma omp parallel for
-	for (int testIndex = 0; testIndex < c_candidateTestCount; ++testIndex)
+	for (int testIndexOuter = 0; testIndexOuter < c_candidateTestCountOuter; ++testIndexOuter)
 	{
-		std::vector<float> candidates = RNG(c_candidateCount, sequenceIndexBase + testIndex);
-
-		// Find the best candidate in the pre candidate group.
-		// THe pre candidate group is candidateCount / e in size
-		size_t preCandidates = size_t(float(c_candidateCount) / std::exp(1.0f));
-		float bestPreCandidate = 0.0f;
-		for (size_t i = 0; i < preCandidates; ++i)
-			bestPreCandidate = std::max(bestPreCandidate, candidates[i]);
-
-		// Find the first candidate in the second group that is > that candidate, and take that as the winner
-		size_t foundAt = 0;
-		float bestCandidate = 0.0f;
-		for (size_t i = preCandidates; i < c_candidateCount; ++i)
+		for (int testIndexInner = 0; testIndexInner < c_candidateTestCountInner; ++testIndexInner)
 		{
-			if (candidates[i] > bestPreCandidate)
+			if (omp_get_thread_num() == 0)
 			{
-				bestCandidate = candidates[i];
-				foundAt = i;
-				break;
+				int percent = int(100.0f * float(testsFinished.load()) / float(c_candidateTestCountOuter * c_candidateTestCountInner));
+				if (percent != lastPercent)
+				{
+					lastPercent = percent;
+					printf("\r  %s: %i%%", label, percent);
+				}
 			}
-		}
-		if (foundAt == 0)
-		{
-			foundAt = c_candidateCount - 1;
-			bestCandidate = bestPreCandidate;
-			//printf("[ERROR] Ran out of random numbers.\n");
-		}
-		results[testIndex].candidatesEvaluated = float(foundAt);
 
-		// find out how many candidates are better than what we found.
-		size_t betterCount = 0;
-		for (size_t i = 0; i < c_candidateCount; ++i)
-		{
-			if (candidates[i] > bestCandidate)
-				betterCount++;
-		}
+			int testIndex = testIndexOuter * c_sumTestCountOuter + testIndexInner;
 
-		results[testIndex].candidateRankPercent = float(betterCount) / float(c_candidateCount);
+			std::vector<float> candidates = RNG(c_candidateCount, sequenceIndexBase + testIndex);
+
+			// Find the best candidate in the pre candidate group.
+			// THe pre candidate group is candidateCount / e in size
+			size_t preCandidates = size_t(float(c_candidateCount) / std::exp(1.0f));
+			float bestPreCandidate = 0.0f;
+			for (size_t i = 0; i < preCandidates; ++i)
+				bestPreCandidate = std::max(bestPreCandidate, candidates[i]);
+
+			// Find the first candidate in the second group that is > that candidate, and take that as the winner
+			size_t foundAt = 0;
+			float bestCandidate = 0.0f;
+			for (size_t i = preCandidates; i < c_candidateCount; ++i)
+			{
+				if (candidates[i] > bestPreCandidate)
+				{
+					bestCandidate = candidates[i];
+					foundAt = i;
+					break;
+				}
+			}
+			if (foundAt == 0)
+			{
+				foundAt = c_candidateCount - 1;
+				bestCandidate = bestPreCandidate;
+				//printf("[ERROR] Ran out of random numbers.\n");
+			}
+			results[testIndexOuter].candidatesEvaluated = Lerp(results[testIndexOuter].candidatesEvaluated, float(foundAt), 1.0f / float(testIndexInner + 1));
+
+			// find out how many candidates are better than what we found.
+			size_t betterCount = 0;
+			for (size_t i = 0; i < c_candidateCount; ++i)
+			{
+				if (candidates[i] > bestCandidate)
+					betterCount++;
+			}
+
+			results[testIndexOuter].candidateRank = Lerp(results[testIndexOuter].candidateRank, float(betterCount), 1.0f / float(testIndexInner + 1));
+			results[testIndexOuter].candidateRankPercent = Lerp(results[testIndexOuter].candidateRankPercent, float(betterCount) / float(c_candidateCount), 1.0f / float(testIndexInner + 1));
+			testsFinished.fetch_add(1);
+		}
 	}
 
 	TestResults result;
-	for (size_t i = 0; i < c_candidateTestCount; ++i)
+	for (size_t i = 0; i < c_candidateTestCountOuter; ++i)
 	{
 		result.candidatesEvaluated = Lerp(result.candidatesEvaluated, results[i].candidatesEvaluated, 1.0f / float(i + 1));
+		result.candidateRank = Lerp(result.candidateRank, results[i].candidateRank, 1.0f / float(i + 1));
 		result.candidateRankPercent = Lerp(result.candidateRankPercent, results[i].candidateRankPercent, 1.0f / float(i + 1));
 	}
 
-	printf("  %s: %i / %i candidates looked at, %f%% candidates were better\n", label, int(result.candidatesEvaluated + 0.5f), (int)c_candidateCount, 100.0f * result.candidateRankPercent);
+	printf("\r  %s: %i / %i candidates looked at, %f candidates were better (%f%%)\n", label, int(result.candidatesEvaluated + 0.5f), (int)c_candidateCount, result.candidateRank, 100.0f * result.candidateRankPercent);
 }
 
 int main(int argc, char** argv)
