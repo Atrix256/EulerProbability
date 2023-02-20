@@ -14,7 +14,8 @@ static const size_t c_lotteryWinFrequency = 10000;
 static const size_t c_lotteryTestCountOuter = 1000;
 static const size_t c_lotteryTestCountInner = 1000;
 
-static const size_t c_sumTestCount = 10000;
+static const size_t c_sumTestCountOuter = 10000;
+static const size_t c_sumTestCountInner = 1000;
 
 static const size_t c_candidateTestCount = 100000;
 static const size_t c_candidateCount = 1000;
@@ -155,40 +156,58 @@ void LotteryTest(const LAMBDA& RNG, uint64_t sequenceIndex, const char* label)
 	for (size_t testIndexOuter = 0; testIndexOuter < c_lotteryTestCountOuter; ++testIndexOuter)
 		losePercent = Lerp(losePercent, (1.0f - wins[testIndexOuter]), 1.0f / float(testIndexOuter + 1));
 
-	printf("\r  %s: %0.2f%% lose chance\n", label, 100.0f * losePercent);
+	printf("\r  %s: %f%% lose chance\n", label, 100.0f * losePercent);
 }
 
 template <typename LAMBDA>
 void SumTest(const LAMBDA& RNG, uint64_t sequenceIndex, const char* label)
 {
 	// we need a seed per test
-	uint64_t sequenceIndexBase = sequenceIndex * c_sumTestCount;
+	uint64_t sequenceIndexBase = sequenceIndex * c_sumTestCountOuter * c_sumTestCountInner;
 
-	std::vector<float> sumCount(c_sumTestCount, 0.0f);
-	#pragma omp parallel for
-	for (int testIndex = 0; testIndex < c_sumTestCount; ++testIndex)
+	std::atomic<int> testsFinished(0);
+	int lastPercent = -1;
+	std::vector<float> sumCount(c_sumTestCountOuter, 0.0f);
+	//#pragma omp parallel for
+	for (int testIndexOuter = 0; testIndexOuter < c_sumTestCountOuter; ++testIndexOuter)
 	{
-		std::vector<float> rng = RNG(25, sequenceIndexBase + testIndex);
-		float value = 0.0f;
-		for (size_t index = 0; index < rng.size(); ++index)
+		for (int testIndexInner = 0; testIndexInner < c_sumTestCountInner; ++testIndexInner)
 		{
-			value += rng[index];
-			if (value >= 1.0f)
+			if (omp_get_thread_num() == 0)
 			{
-				sumCount[testIndex] = float(index + 1);
-				break;
+				int percent = int(100.0f * float(testsFinished.load()) / float(c_sumTestCountOuter * c_sumTestCountInner));
+				if (percent != lastPercent)
+				{
+					lastPercent = percent;
+					printf("\r  %s: %i%%", label, percent);
+				}
 			}
+
+			int testIndex = testIndexOuter * c_sumTestCountOuter + testIndexInner;
+
+			std::vector<float> rng = RNG(25, sequenceIndexBase + testIndex);
+			float value = 0.0f;
+			for (size_t index = 0; index < rng.size(); ++index)
+			{
+				value += rng[index];
+				if (value >= 1.0f)
+				{
+					sumCount[testIndexOuter] = Lerp(sumCount[testIndexOuter], float(index + 1), 1.0f / float(testIndexInner + 1));
+					break;
+				}
+			}
+			if (value < 1.0f)
+				printf("[ERROR] Ran out of random numbers.\n");
+			testsFinished.fetch_add(1);
 		}
-		if (value < 1.0f)
-			printf("[ERROR] Ran out of random numbers.\n");
 	}
 
 	// calculate and return the average count
 	float count = 0.0f;
-	for (size_t testIndex = 0; testIndex < c_sumTestCount; ++testIndex)
+	for (size_t testIndex = 0; testIndex < c_sumTestCountOuter; ++testIndex)
 		count = Lerp(count, sumCount[testIndex], 1.0f / float(testIndex + 1));
 
-	printf("  %s: %f numbers to get >= 1.0\n", label, count);
+	printf("\r  %s: %f numbers to get >= 1.0\n", label, count);
 }
 
 template <typename LAMBDA>
