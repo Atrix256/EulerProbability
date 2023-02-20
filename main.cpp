@@ -10,7 +10,7 @@
 static const size_t c_lotteryWinFrequency = 10000;
 static const size_t c_lotteryTestCount = 100;
 
-static const size_t c_sumTestCount = 10000;
+static const size_t c_sumTestCount = 1000000;
 
 // ================== OTHER ==================
 
@@ -74,6 +74,15 @@ std::vector<float> Generate_GoldenRatio(size_t numSamples, uint64_t sequenceInde
 	return ret;
 }
 
+template <typename LAMBDA>
+std::vector<float> ShuffleSequence(size_t numSamples, uint64_t sequenceIndex, LAMBDA& generate)
+{
+	std::vector<float> ret = generate(numSamples, sequenceIndex);
+	std::mt19937 rng((unsigned int)sequenceIndex);
+	std::shuffle(ret.begin(), ret.end(), rng);
+	return ret;
+}
+
 // ================== TESTS ==================
 
 template <typename LAMBDA>
@@ -117,10 +126,10 @@ float SumTest(const LAMBDA& RNG, uint64_t sequenceIndex)
 	uint64_t sequenceIndexBase = sequenceIndex * c_sumTestCount;
 
 	std::vector<float> sumCount(c_sumTestCount, 0.0f);
-	//#pragma omp parallel for
+	#pragma omp parallel for
 	for (int testIndex = 0; testIndex < c_sumTestCount; ++testIndex)
 	{
-		std::vector<float> rng = RNG(10, sequenceIndexBase + testIndex);
+		std::vector<float> rng = RNG(25, sequenceIndexBase + testIndex);
 		float value = 0.0f;
 		for (size_t index = 0; index < rng.size(); ++index)
 		{
@@ -152,17 +161,21 @@ int main(int argc, char** argv)
 	printf("e = %f\n", std::exp(1.0f));
 	printf("1/e = %f\n\n", 1.0f / std::exp(1.0f));
 
+	// NOTE: more evenly spaced sampling means fewer duplicates, which is why they win more.
 	printf("Lottery Lose Chance:\n");
 	printf("  White Noise: %0.2f%%\n", 100.0f * LotteryTest(Generate_WhiteNoise, 0));
 	printf("  Golden Ratio: %0.2f%%\n", 100.0f * LotteryTest(Generate_GoldenRatio, 1));
 	printf("  Stratified: %0.2f%%\n", 100.0f * LotteryTest(Generate_Stratified, 2));
 	printf("  Regular Offset: %0.2f%%\n", 100.0f * LotteryTest(Generate_RegularOffset, 3));
 
+	// NOTE: shuffling stratified and regular offset cause they are only appropriate when we know the number of samples in advance. we don't for this test.
 	printf("\nSumming Random Values:\n");
 	printf("  White Noise: %f\n", SumTest(Generate_WhiteNoise, 0));
 	printf("  Golden Ratio: %f\n", SumTest(Generate_GoldenRatio, 1));
-	printf("  Stratified: %f\n", SumTest(Generate_Stratified, 2));
-	printf("  Regular Offset: %f\n", SumTest(Generate_RegularOffset, 3));
+	printf("  Stratified: %f\n", SumTest([](size_t numSamples, uint64_t sequenceIndex) {return ShuffleSequence(numSamples, sequenceIndex, Generate_Stratified); }, 2));
+	printf("  Regular Offset: %f\n", SumTest([](size_t numSamples, uint64_t sequenceIndex) {return ShuffleSequence(numSamples, sequenceIndex, Generate_RegularOffset); }, 3));
+
+
 
 	return 0;
 }
@@ -174,7 +187,6 @@ TODO:
  - blue noise would be nice but hard to generate quickly. can you turn triangle distribution into uniform without rejection sampling?
  - if so, could do red noise as well
 - csvs with graphs by python
-- profile
 - could try and make blue noise using an e based MBC algorithm.
  - if it works out, could send it to jcgt or something maybe, as a very short paper.
 
