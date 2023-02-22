@@ -83,6 +83,55 @@ std::vector<float> Generate_GoldenRatio(size_t numSamples, uint64_t sequenceInde
 	return ret;
 }
 
+float LinearToUniform(float x)
+{
+	// PDF In:  y = 2x
+	// PDF Out: y = 1
+	// ICDF:    y = x*x
+	return x * x;
+}
+
+float TriangleToUniform(float x)
+{
+	if (x < 0.5f)
+	{
+		x = LinearToUniform(x * 2.0f) / 2.0f;
+	}
+	else
+	{
+		x = 1.0f - x;
+		x = LinearToUniform(x * 2.0f) / 2.0f;
+		x = 1.0f - x;
+	}
+	return x;
+}
+
+std::vector<float> Generate_BlueNoise(size_t numSamples, uint64_t sequenceIndex)
+{
+	std::vector<float> whiteNoise = Generate_WhiteNoise(numSamples + 1, sequenceIndex);
+	std::vector<float> ret(numSamples);
+	for (size_t i = 1; i < numSamples; ++i)
+	{
+		ret[i] = whiteNoise[i + 1] - whiteNoise[i];
+		ret[i] = (ret[i] + 1.0f) / 2.0f;
+		ret[i] = TriangleToUniform(ret[i]);
+	}
+	return ret;
+}
+
+std::vector<float> Generate_RedNoise(size_t numSamples, uint64_t sequenceIndex)
+{
+	std::vector<float> whiteNoise = Generate_WhiteNoise(numSamples + 1, sequenceIndex);
+	std::vector<float> ret(numSamples);
+	for (size_t i = 1; i < numSamples; ++i)
+	{
+		ret[i] = whiteNoise[i + 1] + whiteNoise[i];
+		ret[i] = ret[i] / 2.0f;
+		ret[i] = TriangleToUniform(ret[i]);
+	}
+	return ret;
+}
+
 std::vector<float> ShuffleSequence(std::vector<float>& sequence, uint64_t shuffleSeed)
 {
 	std::mt19937 rng((unsigned int)shuffleSeed ^ (unsigned int)g_randomSeed);
@@ -295,7 +344,7 @@ void CandidatesTest(const LAMBDA& RNG, uint64_t sequenceIndex, const char* label
 		result.candidateRankPercent = Lerp(result.candidateRankPercent, results[i].candidateRankPercent, 1.0f / float(i + 1));
 	}
 
-	printf("\r  %s: %i / %i candidates looked at, %f candidates were better (%f%%)\n", label, int(result.candidatesEvaluated + 0.5f), (int)c_candidateCount, result.candidateRank, 100.0f * result.candidateRankPercent);
+	printf("\r  %s: %0.1f / %i candidates looked at, %f candidates were better (%f%%)\n", label, result.candidatesEvaluated, (int)c_candidateCount, result.candidateRank, 100.0f * result.candidateRankPercent);
 }
 
 int main(int argc, char** argv)
@@ -314,6 +363,8 @@ int main(int argc, char** argv)
 	LotteryTest(Generate_GoldenRatio, 1, "Golden Ratio");
 	LotteryTest(Generate_Stratified, 2, "Stratified");
 	LotteryTest(Generate_RegularOffset, 3, "Regular Offset");
+	LotteryTest(Generate_RedNoise, 4, "Red Noise");
+	LotteryTest(Generate_BlueNoise, 5, "Blue Noise");
 
 	// NOTE: shuffling stratified and regular offset cause they are only appropriate when we know the number of samples in advance. we don't for this test.
 	printf("\nSumming Random Values:\n");
@@ -321,6 +372,8 @@ int main(int argc, char** argv)
 	SumTest(Generate_GoldenRatio, 1, "Golden Ratio");
 	SumTest(Generate_StratifiedShuffled, 2, "Stratified Shuffled");
 	SumTest(Generate_RegularOffsetShuffled, 3, "Regular Offset Shuffled");
+	SumTest(Generate_RedNoise, 4, "Red Noise");
+	SumTest(Generate_BlueNoise, 5, "Blue Noise");
 
 	// NOTE: shuffling stratified and regular offset because they are monotonic otherwise, and the best candidate is always the last one.
 	printf("\nCandidates:\n");
@@ -328,6 +381,8 @@ int main(int argc, char** argv)
 	CandidatesTest(Generate_GoldenRatio, 1, "Golden Ratio");
 	CandidatesTest(Generate_StratifiedShuffled, 2, "Stratified Shuffled");
 	CandidatesTest(Generate_RegularOffsetShuffled, 3, "Regular Offset Shuffled");
+	CandidatesTest(Generate_RedNoise, 4, "Red Noise");
+	CandidatesTest(Generate_BlueNoise, 5, "Blue Noise");
 
 	return 0;
 }
@@ -335,16 +390,10 @@ int main(int argc, char** argv)
 /*
 
 TODO:
-- what other types of noise?
- - blue noise would be nice but hard to generate quickly. can you turn triangle distribution into uniform without rejection sampling?
- - if so, could do red noise as well
 - csvs with graphs by python
-- could try and make blue noise using an e based MBC algorithm.
+- could try and make blue noise sample points using an e based MBC algorithm. Euler's best candidate.
  - if it works out, could send it to jcgt or something maybe, as a very short paper.
 - move to doubles instead of floats?
-
-- try this with blue noise, red noise (need to convert from triangular to uniform distribution, or find some other way to do this).
-- make a "Euler's best candidate" and compare DFT to MBC blue noise
 
 Note:
 * omit and explain the noises that aren't meaningful to specific tests
@@ -360,5 +409,6 @@ Notes:
 - (1 + 1/N)^N = e for large values of N
 
 Link to the video that kicked this off
+and this for triangle pdf: https://www.shadertoy.com/view/4t2SDh
 
 */
