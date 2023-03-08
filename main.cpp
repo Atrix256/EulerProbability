@@ -444,7 +444,7 @@ e probability tests:
 Notes:
 - (1 + 1/N)^N = e for large values of N
 
-Link to the video that kicked this off
+Link to the video that kicked this off: https://www.youtube.com/watch?v=AAir4vcxRPU&feature=youtu.be
 and this for triangle pdf: https://www.shadertoy.com/view/4t2SDh
 
 */
