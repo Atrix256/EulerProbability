@@ -78,6 +78,7 @@
     <ClCompile Include="pcg\pcg_basic.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="BlueNoiseStream.h" />
     <ClInclude Include="pcg\pcg_basic.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

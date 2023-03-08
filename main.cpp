@@ -4,6 +4,7 @@
 #include "pcg/pcg_basic.h"
 #include <omp.h>
 #include <atomic>
+#include "BlueNoiseStream.h"
 
 // ============== TEST SETTINGS ==============
 
@@ -15,7 +16,7 @@ static const size_t c_lotteryTestCountOuter = 1000;
 static const size_t c_lotteryTestCountInner = 1000;
 
 static const size_t c_sumTestCountOuter = 10000;
-static const size_t c_sumTestCountInner = 1000;
+static const size_t c_sumTestCountInner = 10000;
 
 static const size_t c_candidateTestCountOuter = 10000;
 static const size_t c_candidateTestCountInner = 1000;
@@ -129,6 +130,34 @@ std::vector<float> Generate_RedNoise(size_t numSamples, uint64_t sequenceIndex)
 		ret[i] = ret[i] / 2.0f;
 		ret[i] = TriangleToUniform(ret[i]);
 	}
+	return ret;
+}
+
+std::vector<float> Generate_BetterBlueNoise(size_t numSamples, uint64_t sequenceIndex)
+{
+	pcg32_random_t rng;
+	pcg32_srandom_r(&rng, g_randomSeed, sequenceIndex);
+
+	BlueNoiseStreamPolynomial blueNoiseRNG(rng);
+
+	std::vector<float> ret(numSamples);
+	for (float& f : ret)
+		f = blueNoiseRNG.Next();
+
+	return ret;
+}
+
+std::vector<float> Generate_BetterRedNoise(size_t numSamples, uint64_t sequenceIndex)
+{
+	pcg32_random_t rng;
+	pcg32_srandom_r(&rng, g_randomSeed, sequenceIndex);
+
+	RedNoiseStreamPolynomial redNoiseRNG(rng);
+
+	std::vector<float> ret(numSamples);
+	for (float& f : ret)
+		f = redNoiseRNG.Next();
+
 	return ret;
 }
 
@@ -365,6 +394,8 @@ int main(int argc, char** argv)
 	LotteryTest(Generate_RegularOffset, 3, "Regular Offset");
 	LotteryTest(Generate_RedNoise, 4, "Red Noise");
 	LotteryTest(Generate_BlueNoise, 5, "Blue Noise");
+	LotteryTest(Generate_BetterRedNoise, 6, "Better Red Noise");
+	LotteryTest(Generate_BetterBlueNoise, 7, "Better Blue Noise");
 
 	// NOTE: shuffling stratified and regular offset cause they are only appropriate when we know the number of samples in advance. we don't for this test.
 	printf("\nSumming Random Values:\n");
@@ -374,6 +405,8 @@ int main(int argc, char** argv)
 	SumTest(Generate_RegularOffsetShuffled, 3, "Regular Offset Shuffled");
 	SumTest(Generate_RedNoise, 4, "Red Noise");
 	SumTest(Generate_BlueNoise, 5, "Blue Noise");
+	SumTest(Generate_BetterRedNoise, 6, "Better Red Noise");
+	SumTest(Generate_BetterBlueNoise, 7, "Better Blue Noise");
 
 	// NOTE: shuffling stratified and regular offset because they are monotonic otherwise, and the best candidate is always the last one.
 	printf("\nCandidates:\n");
@@ -383,6 +416,8 @@ int main(int argc, char** argv)
 	CandidatesTest(Generate_RegularOffsetShuffled, 3, "Regular Offset Shuffled");
 	CandidatesTest(Generate_RedNoise, 4, "Red Noise");
 	CandidatesTest(Generate_BlueNoise, 5, "Blue Noise");
+	CandidatesTest(Generate_BetterRedNoise, 6, "Better Red Noise");
+	CandidatesTest(Generate_BetterBlueNoise, 7, "Better Blue Noise");
 
 	return 0;
 }
@@ -390,10 +425,11 @@ int main(int argc, char** argv)
 /*
 
 TODO:
-- csvs with graphs by python
+- csvs with graphs by python. bar graphs i guess?
 - could try and make blue noise sample points using an e based MBC algorithm. Euler's best candidate.
  - if it works out, could send it to jcgt or something maybe, as a very short paper.
 - move to doubles instead of floats?
+- report std dev too, not just avg!
 
 Note:
 * omit and explain the noises that aren't meaningful to specific tests
