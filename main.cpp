@@ -463,32 +463,3 @@ int main(int argc, char** argv)
 
 	return 0;
 }
-
-/*
-
-TODO:
-- csvs with graphs by python. bar graphs i guess?
-- could try and make blue noise sample points using an e based MBC algorithm. Euler's best candidate.
- - if it works out, could send it to jcgt or something maybe, as a very short paper.
-
-Note:
-
-! yes, std dev can be greater than mean even if there are only positive numbers!
- * https://stats.stackexchange.com/questions/18590/can-the-standard-deviation-of-non-negative-data-exceed-the-mean
-
-* omit and explain the noises that aren't meaningful to specific tests
-
-e probability tests:
-- Lottery: 1/N chance of winning done N times has 1/e chance of never happening. 36.8%.  (1 - 1/N)^N = 1/e
-- Umbrella: N umbrellas, everyone puts there umbrella in and grabs one at random. 1/e chance nobody has their umbrella.
-- Shuffle: N cards, shuffle. 1/e chance no card is in it's original spot.
-- Interview: 100 people, measure typing speed.  streaming candidates. find the best in 100/e of them (36). Then pick the next of the 100 that is better than that
- - 1/e chance of picking best person.
-
-Notes:
-- (1 + 1/N)^N = e for large values of N
-
-Link to the video that kicked this off: https://www.youtube.com/watch?v=AAir4vcxRPU&feature=youtu.be
-and this for triangle pdf: https://www.shadertoy.com/view/4t2SDh
-
-*/
