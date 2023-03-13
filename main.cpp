@@ -147,6 +147,20 @@ std::vector<float> Generate_BetterBlueNoise(size_t numSamples, uint64_t sequence
 	return ret;
 }
 
+std::vector<float> Generate_BetterBlueNoise2(size_t numSamples, uint64_t sequenceIndex)
+{
+	pcg32_random_t rng;
+	pcg32_srandom_r(&rng, g_randomSeed, sequenceIndex);
+
+	BlueNoiseStreamAppleton blueNoiseRNG(pcg32_random_r(&rng));
+
+	std::vector<float> ret(numSamples);
+	for (float& f : ret)
+		f = blueNoiseRNG.Next();
+
+	return ret;
+}
+
 std::vector<float> Generate_BetterRedNoise(size_t numSamples, uint64_t sequenceIndex)
 {
 	pcg32_random_t rng;
@@ -396,6 +410,7 @@ int main(int argc, char** argv)
 	LotteryTest(Generate_BlueNoise, 5, "Blue Noise");
 	LotteryTest(Generate_BetterRedNoise, 6, "Better Red Noise");
 	LotteryTest(Generate_BetterBlueNoise, 7, "Better Blue Noise");
+	LotteryTest(Generate_BetterBlueNoise2, 8, "Better Blue Noise 2");
 
 	// NOTE: shuffling stratified and regular offset cause they are only appropriate when we know the number of samples in advance. we don't for this test.
 	printf("\nSumming Random Values:\n");
@@ -407,6 +422,7 @@ int main(int argc, char** argv)
 	SumTest(Generate_BlueNoise, 5, "Blue Noise");
 	SumTest(Generate_BetterRedNoise, 6, "Better Red Noise");
 	SumTest(Generate_BetterBlueNoise, 7, "Better Blue Noise");
+	SumTest(Generate_BetterBlueNoise2, 8, "Better Blue Noise 2");
 
 	// NOTE: shuffling stratified and regular offset because they are monotonic otherwise, and the best candidate is always the last one.
 	printf("\nCandidates:\n");
@@ -418,6 +434,7 @@ int main(int argc, char** argv)
 	CandidatesTest(Generate_BlueNoise, 5, "Blue Noise");
 	CandidatesTest(Generate_BetterRedNoise, 6, "Better Red Noise");
 	CandidatesTest(Generate_BetterBlueNoise, 7, "Better Blue Noise");
+	CandidatesTest(Generate_BetterBlueNoise2, 8, "Better Blue Noise 2");
 
 	return 0;
 }
