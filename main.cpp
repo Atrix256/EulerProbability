@@ -260,7 +260,8 @@ void SumTest(const LAMBDA& RNG, uint64_t sequenceIndex, const char* label)
 
 	std::atomic<int> testsFinished(0);
 	int lastPercent = -1;
-	std::vector<float> sumCount(c_sumTestCountOuter, 0.0f);
+	std::vector<float> sumCountAvg(c_sumTestCountOuter, 0.0f);
+	std::vector<float> sumCountSquareAvg(c_sumTestCountOuter, 0.0f);
 	#pragma omp parallel for
 	for (int testIndexOuter = 0; testIndexOuter < c_sumTestCountOuter; ++testIndexOuter)
 	{
@@ -285,7 +286,9 @@ void SumTest(const LAMBDA& RNG, uint64_t sequenceIndex, const char* label)
 				value += rng[index];
 				if (value >= 1.0f)
 				{
-					sumCount[testIndexOuter] = Lerp(sumCount[testIndexOuter], float(index + 1), 1.0f / float(testIndexInner + 1));
+					float count = float(index + 1);
+					sumCountAvg[testIndexOuter] = Lerp(sumCountAvg[testIndexOuter], count, 1.0f / float(testIndexInner + 1));
+					sumCountSquareAvg[testIndexOuter] = Lerp(sumCountSquareAvg[testIndexOuter], count * count, 1.0f / float(testIndexInner + 1));
 					break;
 				}
 			}
@@ -297,10 +300,16 @@ void SumTest(const LAMBDA& RNG, uint64_t sequenceIndex, const char* label)
 
 	// calculate and return the average count
 	float count = 0.0f;
+	float countSq = 0.0f;
 	for (size_t testIndex = 0; testIndex < c_sumTestCountOuter; ++testIndex)
-		count = Lerp(count, sumCount[testIndex], 1.0f / float(testIndex + 1));
+	{
+		count = Lerp(count, sumCountAvg[testIndex], 1.0f / float(testIndex + 1));
+		countSq = Lerp(countSq, sumCountSquareAvg[testIndex], 1.0f / float(testIndex + 1));
+	}
 
-	printf("\r  %s: %f numbers to get >= 1.0\n", label, count);
+	float variance = countSq - count * count;
+
+	printf("\r  %s: %f numbers to get >= 1.0  (%f std. dev.)\n", label, count, std::sqrt(variance));
 }
 
 template <typename LAMBDA>
