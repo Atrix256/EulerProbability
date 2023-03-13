@@ -320,9 +320,10 @@ void CandidatesTest(const LAMBDA& RNG, uint64_t sequenceIndex, const char* label
 
 	struct TestResults
 	{
-		float candidatesEvaluated = 0.0f;
-		float candidateRank = 0.0f;
-		float candidateRankPercent = 0.0f;
+		float candidatesEvaluatedAvg = 0.0f;
+		float candidatesEvaluatedSqAvg = 0.0f;
+		float candidateRankAvg = 0.0f;
+		float candidateRankSqAvg = 0.0f;
 	};
 
 	std::atomic<int> testsFinished(0);
@@ -372,7 +373,8 @@ void CandidatesTest(const LAMBDA& RNG, uint64_t sequenceIndex, const char* label
 				bestCandidate = bestPreCandidate;
 				//printf("[ERROR] Ran out of random numbers.\n");
 			}
-			results[testIndexOuter].candidatesEvaluated = Lerp(results[testIndexOuter].candidatesEvaluated, float(foundAt), 1.0f / float(testIndexInner + 1));
+			results[testIndexOuter].candidatesEvaluatedAvg = Lerp(results[testIndexOuter].candidatesEvaluatedAvg, float(foundAt), 1.0f / float(testIndexInner + 1));
+			results[testIndexOuter].candidatesEvaluatedSqAvg = Lerp(results[testIndexOuter].candidatesEvaluatedSqAvg, float(foundAt * foundAt), 1.0f / float(testIndexInner + 1));
 
 			// find out how many candidates are better than what we found.
 			size_t betterCount = 0;
@@ -382,8 +384,8 @@ void CandidatesTest(const LAMBDA& RNG, uint64_t sequenceIndex, const char* label
 					betterCount++;
 			}
 
-			results[testIndexOuter].candidateRank = Lerp(results[testIndexOuter].candidateRank, float(betterCount), 1.0f / float(testIndexInner + 1));
-			results[testIndexOuter].candidateRankPercent = Lerp(results[testIndexOuter].candidateRankPercent, float(betterCount) / float(c_candidateCount), 1.0f / float(testIndexInner + 1));
+			results[testIndexOuter].candidateRankAvg = Lerp(results[testIndexOuter].candidateRankAvg, float(betterCount), 1.0f / float(testIndexInner + 1));
+			results[testIndexOuter].candidateRankSqAvg = Lerp(results[testIndexOuter].candidateRankSqAvg, float(betterCount * betterCount), 1.0f / float(testIndexInner + 1));
 			testsFinished.fetch_add(1);
 		}
 	}
@@ -391,12 +393,19 @@ void CandidatesTest(const LAMBDA& RNG, uint64_t sequenceIndex, const char* label
 	TestResults result;
 	for (size_t i = 0; i < c_candidateTestCountOuter; ++i)
 	{
-		result.candidatesEvaluated = Lerp(result.candidatesEvaluated, results[i].candidatesEvaluated, 1.0f / float(i + 1));
-		result.candidateRank = Lerp(result.candidateRank, results[i].candidateRank, 1.0f / float(i + 1));
-		result.candidateRankPercent = Lerp(result.candidateRankPercent, results[i].candidateRankPercent, 1.0f / float(i + 1));
+		result.candidatesEvaluatedAvg = Lerp(result.candidatesEvaluatedAvg, results[i].candidatesEvaluatedAvg, 1.0f / float(i + 1));
+		result.candidatesEvaluatedSqAvg = Lerp(result.candidatesEvaluatedSqAvg, results[i].candidatesEvaluatedSqAvg, 1.0f / float(i + 1));
+		result.candidateRankAvg = Lerp(result.candidateRankAvg, results[i].candidateRankAvg, 1.0f / float(i + 1));
+		result.candidateRankSqAvg = Lerp(result.candidateRankSqAvg, results[i].candidateRankSqAvg, 1.0f / float(i + 1));
 	}
 
-	printf("\r  %s: %0.1f / %i candidates looked at, %f candidates were better (%f%%)\n", label, result.candidatesEvaluated, (int)c_candidateCount, result.candidateRank, 100.0f * result.candidateRankPercent);
+	float candidatesEvaluatedVariance = result.candidatesEvaluatedSqAvg - result.candidatesEvaluatedAvg * result.candidatesEvaluatedAvg;
+	float candidatesEvaluatedStdDev = std::sqrt(candidatesEvaluatedVariance);
+
+	float candidateRankVariance = result.candidateRankSqAvg - result.candidateRankAvg * result.candidateRankAvg;
+	float candidateRankStdDev = std::sqrt(candidateRankVariance);
+
+	printf("\r  %s: \n    %0.1f / %i candidates looked at (%f std. dev.)\n    %f candidates were better (%f std. dev.)\n", label, result.candidatesEvaluatedAvg, (int)c_candidateCount, candidatesEvaluatedStdDev, result.candidateRankAvg, candidateRankStdDev);
 }
 
 int main(int argc, char** argv)
@@ -458,6 +467,10 @@ TODO:
 - report std dev too, not just avg!
 
 Note:
+
+! yes, std dev can be greater than mean even if there are only positive numbers!
+ * https://stats.stackexchange.com/questions/18590/can-the-standard-deviation-of-non-negative-data-exceed-the-mean
+
 * omit and explain the noises that aren't meaningful to specific tests
 
 e probability tests:
