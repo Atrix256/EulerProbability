@@ -246,10 +246,17 @@ void LotteryTest(const LAMBDA& RNG, uint64_t sequenceIndex, const char* label)
 
 	// calculate and return the lose percentage
 	float losePercent = 0.0f;
+	float losePercentSquared = 0.0f;
 	for (size_t testIndexOuter = 0; testIndexOuter < c_lotteryTestCountOuter; ++testIndexOuter)
+	{
 		losePercent = Lerp(losePercent, (1.0f - wins[testIndexOuter]), 1.0f / float(testIndexOuter + 1));
+		losePercentSquared = Lerp(losePercentSquared, (1.0f - wins[testIndexOuter]) * (1.0f - wins[testIndexOuter]), 1.0f / float(testIndexOuter + 1));
+	}
 
-	printf("\r  %s: %f%% lose chance\n", label, 100.0f * losePercent);
+	float variance = losePercentSquared - losePercent * losePercent;
+	float stdDev = std::sqrt(variance);
+
+	printf("\r  %s: %f%% lose chance (%f%% std. dev.)\n", label, 100.0f * losePercent, 100.0f * stdDev);
 }
 
 template <typename LAMBDA>
@@ -463,8 +470,6 @@ TODO:
 - csvs with graphs by python. bar graphs i guess?
 - could try and make blue noise sample points using an e based MBC algorithm. Euler's best candidate.
  - if it works out, could send it to jcgt or something maybe, as a very short paper.
-- move to doubles instead of floats?
-- report std dev too, not just avg!
 
 Note:
 
